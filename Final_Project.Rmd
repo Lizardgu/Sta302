@@ -1,0 +1,214 @@
+install.packages("car")
+install.packages('ggplot2')
+
+```{r}
+
+library(car)
+
+library(ggplot2)
+
+install.packages("stargazer")
+```
+
+
+
+```{r}
+# Load necessary library
+library(ggplot2)
+
+# Read the data
+data <- read.csv(file = "C:/Users/bill_/Desktop/Final/USA_housing.csv")
+str(data)
+
+# Set seed for reproducibility
+set.seed(300)
+
+# Remove rows with NA values
+data1 <- na.omit(data)
+
+# Sample 200 rows for the training set
+rows <- sample(1:nrow(data1), 3500, replace = FALSE)
+train <- data1[rows, ]
+
+# Create the test set using the remaining rows
+test <- data1[-rows, ]
+
+nrow(train)  # Should be 3500
+nrow(test)   # Should be the remaining rows
+
+```
+Predictor: avg.area income, avg.area house age, avg.area number of rooms, area population
+
+Response: price
+```{r}
+#A summary of variables
+sum = train[,c(1,2,3,5)]
+```
+
+```{r}
+names(train)
+names(test)
+```
+
+```{r}
+library(stargazer)
+library(ggplot2)
+
+
+numerical_columns <- train[, c(1,2,3,5)]
+
+# Create a summary table using stargazer
+stargazer(numerical_columns, type = "text", summary.stat = c("min", "p25", "median", "mean", "p75", "max"))
+
+```
+
+Histograms plots of numerical variable and boxplot for categorical
+```{r}
+par(mfrow = c(3, 2))
+
+# Plot histograms for numerical variables
+hist(train$`Price`, breaks = 10, main = "Price", xlab = "Price Range",  col = "red")
+hist(train$`Avg..Area.Income`, breaks = 10, main = "Avg. Area Income", xlab = "Income Range",  col = "red")
+hist(train$`Avg..Area.House.Age`, breaks = 10,xlab = "Age Range", main = "Avg. Area House Age")
+hist(train$`Avg..Area.Number.of.Rooms`, breaks = 10, main = "Avg. Area Number of Rooms", xlab = " Number of Rooms Range",col = "blue")
+hist(train$`Area.Population`, breaks = 10, main = "Area Population",xlab = "Population Range", col = "blue")
+```
+
+Setting model
+```{r}
+m1 = lm(`Price` ~ `Avg..Area.Income`+`Avg..Area.House.Age`+`Avg..Area.Number.of.Rooms`+`Avg..Area.Number.of.Bedrooms`+`Area.Population`, data=train)
+summary(m1) #p value of Avg.Area.Number.of.Bedrooms > 0.05, we need to delete it
+```
+
+```{r}
+m2 = lm(`Price` ~ `Avg..Area.Income`+`Avg..Area.House.Age`+`Avg..Area.Number.of.Rooms`+`Area.Population`, data=train)
+summary(m2) #all p value < 0.05
+```
+
+```{r}
+#Partial F test
+m3 = lm(`Price` ~ `Avg..Area.Income`+`Avg..Area.House.Age`+`Area.Population`, data=train) #random delete some numbers
+anova(m2,m3)
+
+# In partial F test, p value < 0.05, choose more complex model, so we prefer m2 as the ideal model
+```
+
+
+```{r,message=FALSE, echo=FALSE,warning=FALSE,fig.height=3}
+#model checking
+r <- resid(m2)
+# check condition 1 check y and x are linear
+plot(train$`Price` ~ fitted(m2), main="Y versus Y-hat", xlab="Y-hat", ylab="Y")
+abline(a = 0, b = 1)  # 添加y=x线
+lines(lowess(train$`Price` ~ fitted(m2)), lty=2)  # 添加LOWESS线
+#condition 2  there is no non-linear pattern
+data2 = data.frame(train$`Price`,train$`Avg..Area.Number.of.Bedrooms`)
+pairs( data2 )
+
+
+```
+
+
+```{r}
+y_hat <- fitted(m2)
+e_hat <- resid(m2)
+
+par(mfrow = c(1,2))
+plot(x = y_hat, y = e_hat, main="Residual vs Fitted", xlab="Fitted",
+     ylab="Residuals")
+hist(train$Price, main = "Histogram", xlab = "Price")
+```
+```{r}
+#leverage point = 10
+v <- hatvalues(m2)
+threshold <- 2 * (length(m2$coefficients)/nrow(train))
+w <- which(v > threshold)
+train[w,]
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(m2,1)   # The residuals are randomly scattered around the horizontal line with no discernible systematic patterns or trends supports the assumption that the model is appropriately capturing a linear relationship
+plot(m2,2)  #QQ plot needs to be a straight line
+plot(m2,3)  
+plot(m2,4)  #4527, 1068, 4104 might be influential point
+```
+
+```{r}
+# cook distance = 0
+D <- cooks.distance(m2)
+cutoff <- qf(0.5, length(m2$coefficients), nrow(train)-length(m2$coefficients), lower.tail=T)
+which(D > cutoff)
+```
+```{r}
+#multicollinearity <5, there is very low to no multicollinearity among the predictors
+
+vif(m2)
+```
+```{r}
+select = function(model, n)
+{
+  SSres <- sum(model$residuals^2)
+  Rsq <- summary(model)$r.squared
+  Rsq_adj <- summary(model)$adj.r.squared
+  p <- length(model$coefficients) - 1
+  AIC <- n*log(SSres/n) + 2*p   
+  AICc <- AIC + (2*(p+2)*(p+3)/(n-p-1))
+  BIC <- n*log(SSres/n) + (p+2)*log(n)   
+  res <- c(SSres, Rsq, Rsq_adj, AIC, AICc, BIC)
+  names(res) <- c("SSres", "Rsq", "Rsq_adj", "AIC", "AIC_c", "BIC")
+  return(res)
+}
+
+# apply to the models
+s1 <- select(m2, nrow(train))
+s1
+```
+
+```{r}
+#validation, check if train and test are similar
+m4 = lm(`Price` ~ `Avg..Area.Income`+`Avg..Area.House.Age`+`Avg..Area.Number.of.Rooms`+`Area.Population`, data=test)
+r <- resid(m4)
+# check condition 1 check y and x are linear
+plot(test$`Price` ~ fitted(m4), main="Y versus Y-hat", xlab="Y-hat", ylab="Y")
+abline(a = 0, b = 1)  # 添加y=x线
+lines(lowess(test$`Price` ~ fitted(m4)), lty=2)  # 添加LOWESS线
+#condition 2  there is no non-linear pattern
+data2 = data.frame(train$`Price`,train$`Avg..Area.Number.of.Bedrooms`)
+pairs( data2 )
+
+```
+
+
+```{r}
+# should be similar
+par(mfrow=c(2,2))
+plot(m4,1)
+plot(m4,2)
+plot(m4,3)  
+plot(m4,4)
+```
+```{r}
+# 预测训练数据集
+train_predictions <- predict(m2, train)
+
+# 预测测试数据集
+test_predictions <- predict(m4, test)
+
+# 计算train的 MSE 和 RMSE
+train_mse <- mean((train$Price - train_predictions)^2)
+train_rmse <- sqrt(train_mse)
+
+# 计算test的 MSE 和 RMSE
+test_mse <- mean((test$Price - test_predictions)^2)
+test_rmse <- sqrt(test_mse)
+
+# 计算 R² 值
+train_r_squared <- summary(m2)$r.squared
+test_r_squared <- 1 - sum((test$Price - test_predictions)^2) / sum((test$Price - mean(test$Price))^2)
+
+# 打印结果
+cat("Training Data - MSE: ", train_mse, ", RMSE: ", train_rmse, ", R²: ", train_r_squared, "\n")
+cat("Testing Data - MSE: ", test_mse, ", RMSE: ", test_rmse, ", R²: ", test_r_squared, "\n")
+```
+
